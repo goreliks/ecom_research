@@ -1,0 +1,7 @@
+Please analyze this TikTok video and provide:
+Describe the key events in this video, providing both audio and visual details. Include timestamps for salient moments.
+1. A brief summary of what happens in the video
+2. The product or topic being featured
+3. Key visual elements and text overlays
+4. The tone and style of the content (e.g. promotional, educational, entertaining)
+5. Any calls to action present
