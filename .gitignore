@@ -12,12 +12,15 @@ wheels/
 # Environment / secrets
 .env
 
+# macOS
+.DS_Store
+
 # Playwright MCP
 .playwright-mcp/
 
 # Downloaded assets
 downloads/
 
-# Test/sample result JSONs
+# Test/sample data
 result*.json
 output.json

@@ -1,0 +1,11 @@
+{
+  "model": "gemini-3-flash-preview",
+  "prompt_tokens": 2133,
+  "output_tokens": 472,
+  "thinking_tokens": 855,
+  "total_tokens": 3460,
+  "prompt_tokens_by_modality": {
+    "image": 1100,
+    "text": 1033
+  }
+}

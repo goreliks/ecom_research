@@ -8,7 +8,7 @@ from config import ROOT_DIR, output_dir
 from tiktok.scrape_post import scrape_tiktok_post
 from tiktok.download_media import download_post
 from tiktok.scrape_comments import scrape_comments, extract_post_id
-from tiktok.analyze_video import analyze_video, DEFAULT_PROMPT_FILE
+from tiktok.analyze_video import analyze_media, _load_prompt_generator, DEFAULT_PROMPT_FILE
 
 from config import gemini_model
 
@@ -19,7 +19,7 @@ def main():
     parser.add_argument("--download-video", action="store_true", help="Download video file (paid add-on)")
     parser.add_argument("--comments", type=int, default=0, help="Number of comments to scrape (default: 0)")
     parser.add_argument("--replies", type=int, default=0, help="Max replies per comment (default: 0)")
-    parser.add_argument("-p", "--prompt-file", default=str(DEFAULT_PROMPT_FILE), help="Prompt file for analysis")
+    parser.add_argument("-p", "--prompt-file", default=None, help="Prompt file for analysis (overrides built-in prompt)")
     parser.add_argument("--no-analyze", action="store_true", help="Skip video analysis")
     args = parser.parse_args()
 
@@ -62,14 +62,21 @@ def main():
     elif not video_path.is_file():
         print(f"\n[4/4] Skipping analysis (no video file)")
     else:
-        prompt_path = Path(args.prompt_file)
-        if not prompt_path.is_file():
-            print(f"\n[4/4] Skipping analysis (prompt file not found: {prompt_path})", file=sys.stderr)
+        if args.prompt_file:
+            prompt_path = Path(args.prompt_file)
+            if not prompt_path.is_file():
+                print(f"\n[4/4] Skipping analysis (prompt file not found: {prompt_path})", file=sys.stderr)
+                prompt = None
+            else:
+                prompt = prompt_path.read_text().strip()
         else:
+            generate_auditor_prompt = _load_prompt_generator()
+            prompt = generate_auditor_prompt("video")
+
+        if prompt:
             model = gemini_model()
             print(f"\n[4/4] Analyzing video with {model}...")
-            prompt = prompt_path.read_text().strip()
-            text, usage = analyze_video(video_path, prompt, model=model)
+            text, usage = analyze_media(video_path, prompt, model=model)
             analysis_dest = post_dir / "analysis.txt"
             analysis_dest.write_text(text)
             print(f"  Saved to {analysis_dest}")

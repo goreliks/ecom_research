@@ -1,4 +1,5 @@
 import argparse
+import importlib.util
 import json
 import os
 import sys
@@ -10,22 +11,50 @@ from google.genai import types
 
 from config import ROOT_DIR, gemini_model, output_dir
 
+
+def _load_prompt_generator():
+    """Load generate_auditor_prompt from prompts/gemini_media_analysis.py."""
+    spec = importlib.util.spec_from_file_location(
+        "gemini_media_analysis", ROOT_DIR / "prompts" / "gemini_media_analysis.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.generate_auditor_prompt
+
 load_dotenv()
 
 DEFAULT_PROMPT_FILE = ROOT_DIR / "prompts" / "gemini_analyze.txt"
 
+MEDIA_MIME = {
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".avi": "video/x-msvideo",
+    ".webm": "video/webm",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
 
-def analyze_video(video_path: Path, prompt: str, model: str) -> tuple[str, dict]:
-    """Analyze video and return (text, usage_info)."""
+
+def analyze_media(media_path: Path, prompt: str, model: str) -> tuple[str, dict]:
+    """Analyze video or image and return (text, usage_info)."""
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         print("Error: GEMINI_API_KEY not set. Add it to .env file.", file=sys.stderr)
         sys.exit(1)
 
-    video_bytes = video_path.read_bytes()
-    size_mb = len(video_bytes) / (1024 * 1024)
+    suffix = media_path.suffix.lower()
+    mime_type = MEDIA_MIME.get(suffix)
+    if not mime_type:
+        print(f"Error: unsupported file type '{suffix}'", file=sys.stderr)
+        sys.exit(1)
+
+    media_bytes = media_path.read_bytes()
+    size_mb = len(media_bytes) / (1024 * 1024)
     if size_mb > 20:
-        print(f"Error: video is {size_mb:.1f}MB, max supported is 20MB for inline upload.", file=sys.stderr)
+        print(f"Error: file is {size_mb:.1f}MB, max supported is 20MB for inline upload.", file=sys.stderr)
         sys.exit(1)
 
     client = genai.Client(api_key=api_key)
@@ -34,7 +63,7 @@ def analyze_video(video_path: Path, prompt: str, model: str) -> tuple[str, dict]
         contents=types.Content(
             parts=[
                 types.Part(
-                    inline_data=types.Blob(data=video_bytes, mime_type="video/mp4")
+                    inline_data=types.Blob(data=media_bytes, mime_type=mime_type)
                 ),
                 types.Part(text=prompt),
             ]
@@ -63,8 +92,18 @@ def analyze_video(video_path: Path, prompt: str, model: str) -> tuple[str, dict]
     return response.text, usage
 
 
-def resolve_video_path(target: str) -> Path:
-    """Resolve target to a video file. Accepts a file path or post ID."""
+def detect_media_type(path: Path) -> str:
+    """Return 'video' or 'image' based on file extension."""
+    suffix = path.suffix.lower()
+    if suffix in (".mp4", ".mov", ".avi", ".webm"):
+        return "video"
+    if suffix in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        return "image"
+    return "video"  # default
+
+
+def resolve_media_path(target: str) -> Path:
+    """Resolve target to a media file. Accepts a file path or post ID."""
     target_path = Path(target)
     if target_path.is_file():
         return target_path
@@ -79,25 +118,30 @@ def resolve_video_path(target: str) -> Path:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Analyze TikTok video using Gemini")
-    parser.add_argument("target", help="Path to video file or post ID")
-    parser.add_argument("-p", "--prompt-file", default=str(DEFAULT_PROMPT_FILE), help="Path to prompt file (default: prompts/gemini_analyze.txt)")
+    parser = argparse.ArgumentParser(description="Analyze TikTok video/image using Gemini")
+    parser.add_argument("target", help="Path to media file (video/image) or post ID")
+    parser.add_argument("-p", "--prompt-file", default=None, help="Path to prompt file (overrides built-in prompt)")
     args = parser.parse_args()
 
-    video_path = resolve_video_path(args.target)
+    media_path = resolve_media_path(args.target)
+    media_type = detect_media_type(media_path)
 
-    prompt_path = Path(args.prompt_file)
-    if not prompt_path.is_file():
-        print(f"Error: prompt file not found: {prompt_path}", file=sys.stderr)
-        sys.exit(1)
-    prompt = prompt_path.read_text().strip()
+    if args.prompt_file:
+        prompt_path = Path(args.prompt_file)
+        if not prompt_path.is_file():
+            print(f"Error: prompt file not found: {prompt_path}", file=sys.stderr)
+            sys.exit(1)
+        prompt = prompt_path.read_text().strip()
+    else:
+        generate_auditor_prompt = _load_prompt_generator()
+        prompt = generate_auditor_prompt(media_type)
 
     model = gemini_model()
-    print(f"Analyzing: {video_path} (model: {model})")
-    text, usage = analyze_video(video_path, prompt, model=model)
+    print(f"Analyzing ({media_type}): {media_path} (model: {model})")
+    text, usage = analyze_media(media_path, prompt, model=model)
 
-    # Save analysis alongside the video
-    post_dir = video_path.parent
+    # Save analysis alongside the media
+    post_dir = media_path.parent
     dest = post_dir / "analysis.txt"
     dest.write_text(text)
     print(f"Saved to {dest}")
